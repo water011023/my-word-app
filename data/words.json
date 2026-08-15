@@ -1,1 +1,112 @@
-[]
+[
+  {
+    "id": "zhongkao_1",
+    "word_en": "bully",
+    "word_cn": "n. 恃强凌弱者",
+    "group_tag": "Unit160",
+    "library_id": "zhongkao",
+    "word_order": 1,
+    "unit_no": 160,
+    "example_en": "",
+    "example_cn": ""
+  },
+  {
+    "id": "zhongkao_2",
+    "word_en": "benefit",
+    "word_cn": "n. 利益",
+    "group_tag": "Unit160",
+    "library_id": "zhongkao",
+    "word_order": 2,
+    "unit_no": 160,
+    "example_en": "",
+    "example_cn": ""
+  },
+  {
+    "id": "zhongkao_3",
+    "word_en": "soil",
+    "word_cn": "n. 泥土，土壤",
+    "group_tag": "Unit160",
+    "library_id": "zhongkao",
+    "word_order": 3,
+    "unit_no": 160,
+    "example_en": "",
+    "example_cn": ""
+  },
+  {
+    "id": "zhongkao_4",
+    "word_en": "donate",
+    "word_cn": "v. 捐赠；捐献",
+    "group_tag": "Unit160",
+    "library_id": "zhongkao",
+    "word_order": 4,
+    "unit_no": 160,
+    "example_en": "",
+    "example_cn": ""
+  },
+  {
+    "id": "zhongkao_5",
+    "word_en": "climate",
+    "word_cn": "n. 气候",
+    "group_tag": "Unit160",
+    "library_id": "zhongkao",
+    "word_order": 5,
+    "unit_no": 160,
+    "example_en": "",
+    "example_cn": ""
+  },
+  {
+    "id": "zhongkao_6",
+    "word_en": "breath",
+    "word_cn": "n. 呼吸",
+    "group_tag": "Unit160",
+    "library_id": "zhongkao",
+    "word_order": 6,
+    "unit_no": 160,
+    "example_en": "",
+    "example_cn": ""
+  },
+  {
+    "id": "zhongkao_7",
+    "word_en": "humour",
+    "word_cn": "n. 幽默；滑稽",
+    "group_tag": "Unit160",
+    "library_id": "zhongkao",
+    "word_order": 7,
+    "unit_no": 160,
+    "example_en": "",
+    "example_cn": ""
+  },
+  {
+    "id": "zhongkao_8",
+    "word_en": "ski",
+    "word_cn": "v. 滑雪",
+    "group_tag": "Unit160",
+    "library_id": "zhongkao",
+    "word_order": 8,
+    "unit_no": 160,
+    "example_en": "",
+    "example_cn": ""
+  },
+  {
+    "id": "zhongkao_9",
+    "word_en": "fireman",
+    "word_cn": "n. 消防队员",
+    "group_tag": "Unit160",
+    "library_id": "zhongkao",
+    "word_order": 9,
+    "unit_no": 160,
+    "example_en": "",
+    "example_cn": ""
+  },
+  {
+    "id": "zhongkao_10",
+    "word_en": "socialism",
+    "word_cn": "n. 社会主义",
+    "group_tag": "Unit160",
+    "library_id": "zhongkao",
+    "word_order": 10,
+    "unit_no": 160,
+    "example_en": "",
+    "example_cn": ""
+  }
+]
