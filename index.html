@@ -285,6 +285,7 @@
 
   <script src="libs/xlsx.full.min.js"></script>
   <script src="core.js"></script>
+  <script src="mespeak/mespeak.js"></script>
   <script>
   "use strict";
   /* ============ 数据层（IndexedDB） ============ */
@@ -313,8 +314,17 @@
   function esc(s){return (s==null?'':String(s)).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
   function uid(p){return (crypto.randomUUID?crypto.randomUUID():(p+'_'+Date.now()+'_'+Math.random().toString(36).slice(2)));}
 
-  /* ============ 语音播报（移动端健壮版） ============ */
-  let _voices=[], _audioUnlocked=false, _curUtter=null;
+  /* ============ 语音播报（移动端健壮版 + meSpeak 兜底） ============ */
+  let _voices=[], _audioUnlocked=false, _curUtter=null, msEnReady=false;
+  // —— meSpeak：纯 JS 离线 TTS，不依赖浏览器自带语音，荣耀/百度等浏览器也可用 ——
+  function initMeSpeak(){
+    if(typeof meSpeak==='undefined')return;
+    try{
+      meSpeak.loadConfig('mespeak/mespeak_config.json');
+      meSpeak.loadVoice('mespeak/voices/en/en.json', function(){ msEnReady=true; });
+    }catch(e){}
+  }
+  initMeSpeak();
   function loadVoices(){
     try{ _voices=window.speechSynthesis.getVoices()||[]; }catch(e){ _voices=[]; }
   }
@@ -331,33 +341,46 @@
     v=_voices.find(x=>x.lang&&x.lang.toLowerCase().startsWith(base));
     return v||null;
   }
-  // iOS Safari 必须在首次用户手势内唤醒音频引擎，否则整段哑
+  // 移动端音频解锁：首次任意手势内唤醒 AudioContext（meSpeak 与 Web Speech 都受益）
   function unlockAudio(){
     if(_audioUnlocked)return;
     _audioUnlocked=true;
-    try{ const u=new SpeechSynthesisUtterance('');u.volume=0;window.speechSynthesis.speak(u); }catch(e){}
+    try{ const Ctx=window.AudioContext||window.webkitAudioContext; if(Ctx){ const c=new Ctx(); if(c.state==='suspended')c.resume(); } }catch(e){}
+    try{ if('speechSynthesis'in window){ const u=new SpeechSynthesisUtterance('');u.volume=0;window.speechSynthesis.speak(u);} }catch(e){}
   }
   ['touchend','click','pointerdown'].forEach(ev=>{
     window.addEventListener(ev,unlockAudio,{passive:true});
   });
+  // meSpeak 兜底（英文单词，所有浏览器通用）
+  function meSpeakFallback(text,lang){
+    if(typeof meSpeak==='undefined'||!msEnReady)return false;
+    if(!lang||/^en/i.test(lang)){
+      try{ meSpeak.speak(text,{voice:'en',speed:150,pitch:50,volume:1}); return true; }catch(e){ return false; }
+    }
+    return false;
+  }
   function speak(text,lang){
-    try{
-      if(!('speechSynthesis'in window))return;
-      if(!text)return;
-      if(window.speechSynthesis.speaking||window.speechSynthesis.pending)window.speechSynthesis.cancel();
-      const u=new SpeechSynthesisUtterance(text);
-      const useLang=lang||'en-US';
-      u.lang=useLang;u.rate=0.9;u.pitch=1;
-      const v=pickVoice(useLang);
-      if(v)u.voice=v;
-      _curUtter=u; // 防止 iOS 垃圾回收导致不发音
-      // 嗓音可能尚未加载完：若为空则等 voiceschanged 后再试一次
-      if(!_voices.length){
-        const tryAgain=()=>{ if(_voices.length){ const u2=new SpeechSynthesisUtterance(text);u2.lang=useLang;u2.rate=0.9;const vv=pickVoice(useLang);if(vv)u2.voice=vv;window.speechSynthesis.speak(u2);} };
-        window.speechSynthesis.onvoiceschanged=()=>{ loadVoices();tryAgain(); };
-      }
-      window.speechSynthesis.speak(u);
-    }catch(e){}
+    if(!text)return;
+    const useLang=lang||'en-US';
+    // 1) 优先 Web Speech（Chrome/Edge 等支持良好的浏览器，音质更自然）
+    if('speechSynthesis'in window){
+      try{
+        let spoke=false;
+        if(window.speechSynthesis.speaking||window.speechSynthesis.pending)window.speechSynthesis.cancel();
+        const u=new SpeechSynthesisUtterance(text);
+        u.lang=useLang;u.rate=0.9;u.pitch=1;
+        const v=pickVoice(useLang);if(v)u.voice=v;
+        _curUtter=u;
+        u.onstart=()=>{spoke=true;};
+        u.onerror=()=>{ if(!spoke)meSpeakFallback(text,lang); };
+        window.speechSynthesis.speak(u);
+        // 部分浏览器 speechSynthesis 存在但永不触发 onstart（如 X5/华为内核）→ 超时降级到 meSpeak
+        setTimeout(()=>{ if(!spoke)meSpeakFallback(text,lang); },700);
+        return;
+      }catch(e){ /* 落到下面 meSpeak */ }
+    }
+    // 2) 无 Web Speech 直接走 meSpeak
+    meSpeakFallback(text,lang);
   }
 
   /* ============ 导航 ============ */
@@ -514,8 +537,9 @@
     $('#studyBar').style.width=((s.idx)/total*100)+'%';
     const body=$('#studyBody');
     let showText,subText,spoken,spokenLang;
-    if(s.mem==='en'){showText=w.word_en;subText='点击喇叭听释义，口头拼出英文';spoken=w.word_cn;spokenLang='zh-CN';}
-    else{showText=w.word_cn;subText='点击喇叭听单词，口头说出中文';spoken=w.word_en;spokenLang='en-US';}
+    spoken=w.word_en; spokenLang='en-US'; // 核心：始终朗读英文单词本身，meSpeak 兜底保证所有浏览器出声
+    if(s.mem==='en'){showText=w.word_en;subText='🔊 听单词发音，口头拼出英文并说出中文';}
+    else{showText=w.word_cn;subText='🔊 听单词发音，口头拼出英文';}
     body.innerHTML=
       '<div class="study-word">'+esc(showText)+'</div>'+
       '<div class="study-sub">'+esc(subText)+'</div>'+
