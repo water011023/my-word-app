@@ -1,81 +1,39 @@
-// Service Worker - 错词本背单词 PWA
-const CACHE_NAME = 'word-app-v1';
-const CACHE_FILES = [
+/* service worker — 离线缓存应用外壳 */
+const CACHE = 'vocab-pwa-v1';
+const SHELL = [
   './',
   './index.html',
+  './core.js',
   './manifest.json',
-  './icon-192.png',
-  './icon-512.png',
-  'https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js'
+  './icon.svg',
+  './libs/xlsx.full.min.js'
 ];
 
-// 安装：缓存核心文件
-self.addEventListener('install', (event) => {
-  event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => {
-      return cache.addAll(CACHE_FILES).catch((err) => {
-        console.warn('部分资源缓存失败:', err);
-      });
-    })
-  );
-  self.skipWaiting();
+self.addEventListener('install', function (e) {
+  e.waitUntil(caches.open(CACHE).then(function (c) { return c.addAll(SHELL); }).then(function () { return self.skipWaiting(); }));
 });
 
-// 激活：清理旧缓存
-self.addEventListener('activate', (event) => {
-  event.waitUntil(
-    caches.keys().then((cacheNames) => {
-      return Promise.all(
-        cacheNames
-          .filter((name) => name !== CACHE_NAME)
-          .map((name) => caches.delete(name))
-      );
-    })
+self.addEventListener('activate', function (e) {
+  e.waitUntil(
+    caches.keys().then(function (keys) {
+      return Promise.all(keys.filter(function (k) { return k !== CACHE; }).map(function (k) { return caches.delete(k); }));
+    }).then(function () { return self.clients.claim(); })
   );
-  self.clients.claim();
 });
 
-// 请求拦截：缓存优先，网络回退
-self.addEventListener('fetch', (event) => {
-  const url = new URL(event.request.url);
-
-  // GitHub API 请求不缓存
-  if (url.hostname === 'api.github.com') {
-    return;
-  }
-
-  event.respondWith(
-    caches.match(event.request).then((cached) => {
-      if (cached) {
-        // 同时更新缓存（stale-while-revalidate）
-        fetch(event.request)
-          .then((response) => {
-            if (response.ok) {
-              caches.open(CACHE_NAME).then((cache) => {
-                cache.put(event.request, response.clone());
-              });
-            }
-          })
-          .catch(() => {});
-        return cached;
-      }
-
-      return fetch(event.request)
-        .then((response) => {
-          if (response.ok && (url.origin === self.location.origin || url.hostname === 'cdn.jsdelivr.net')) {
-            const clone = response.clone();
-            caches.open(CACHE_NAME).then((cache) => {
-              cache.put(event.request, clone);
-            });
-          }
-          return response;
-        })
-        .catch(() => {
-          // 离线时返回缓存的 index.html
-          if (event.request.mode === 'navigate') {
-            return caches.match('./index.html');
-          }
-        });
+self.addEventListener('fetch', function (e) {
+  const req = e.request;
+  if (req.method !== 'GET') return;
+  e.respondWith(
+    caches.match(req).then(function (cached) {
+      const net = fetch(req).then(function (res) {
+        if (res && res.status === 200 && res.type === 'basic') {
+          const copy = res.clone();
+          caches.open(CACHE).then(function (c) { c.put(req, copy); });
+        }
+        return res;
+      }).catch(function () { return cached; });
+      return cached || net;
     })
   );
 });

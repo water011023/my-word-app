@@ -1,23 +1,19 @@
 {
   "name": "错词本背单词",
   "short_name": "错词本",
-  "description": "基于错词本机制的个性化英语背单词工具",
+  "description": "以错词本为核心的本地优先 PWA 背单词软件，手机端背诵，电脑端导入/导出/打印。",
   "start_url": "./index.html",
+  "scope": "./",
   "display": "standalone",
-  "orientation": "any",
-  "background_color": "#ffffff",
-  "theme_color": "#2D5F8A",
+  "orientation": "portrait",
+  "background_color": "#0f172a",
+  "theme_color": "#0f172a",
+  "lang": "zh-CN",
   "icons": [
     {
-      "src": "./icon-192.png",
-      "sizes": "192x192",
-      "type": "image/png",
-      "purpose": "any maskable"
-    },
-    {
-      "src": "./icon-512.png",
-      "sizes": "512x512",
-      "type": "image/png",
+      "src": "icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
       "purpose": "any maskable"
     }
   ]

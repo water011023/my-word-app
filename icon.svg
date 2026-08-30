@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="96" fill="#0f172a"/>
+  <rect x="96" y="120" width="320" height="272" rx="24" fill="#1e293b" stroke="#38bdf8" stroke-width="10"/>
+  <text x="256" y="250" font-size="150" text-anchor="middle" fill="#38bdf8" font-family="Arial, sans-serif" font-weight="bold">A</text>
+  <text x="256" y="360" font-size="64" text-anchor="middle" fill="#fbbf24" font-family="Arial, sans-serif">错词</text>
+</svg>
