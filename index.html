@@ -469,6 +469,7 @@
 
   function renderStudy(){
     const s=state.study;if(!s)return;
+    s.judged=false;
     if(s.idx>=s.words.length){renderSummary();return;}
     const w=s.words[s.idx];s.cur=w;
     const total=s.words.length;
@@ -484,18 +485,28 @@
       '<div class="study-actions"><button class="btn ghost" id="speakBtn">🔊 播报</button></div>'+
       '<div class="study-actions">'+
         '<button class="btn bad" id="wrongBtn" style="flex:1.4">❌ 标记错误</button>'+
-        '<button class="btn ok" id="nextBtn">✓ 下一个</button>'+
+        '<button class="btn ok" id="nextBtn">✓ 认识</button>'+
       '</div>'+
       '<div class="detail" id="detail"></div>';
     $('#speakBtn').addEventListener('click',()=>speak(spoken,spokenLang));
-    $('#wrongBtn').addEventListener('click',()=>onWrong(w));
-    $('#nextBtn').addEventListener('click',()=>{s.correct++;nextWord();});
+    $('#wrongBtn').addEventListener('click',()=>judge(w,false));
+    $('#nextBtn').addEventListener('click',()=>judge(w,true));
     speak(spoken,spokenLang);
   }
-  async function onWrong(w){
+  // 每个词只判一次：锁定按钮，避免“标记错误”后又被“下一个”重复计数
+  function judge(w,isCorrect){
+    const s=state.study;
+    if(s.judged) return;
+    s.judged=true;
+    const wb=$('#wrongBtn'),nb=$('#nextBtn');
+    if(wb)wb.disabled=true; if(nb)nb.disabled=true;
+    if(isCorrect){ s.correct++; }
+    else { s.wrong++; onWrongShow(w); }
+    setTimeout(nextWord, isCorrect?350:1300);
+  }
+  async function onWrongShow(w){
     const s=state.study;
     const cnt=await bumpProgress(w.id,s.lib.id,1);
-    s.wrong++;
     const d=$('#detail');
     const ex=w.example_en?('<div class="ex-en">'+esc(w.example_en)+'</div>'+(w.example_cn?'<div class="ex-cn">'+esc(w.example_cn)+'</div>':'')):'<div class="ex-cn">（暂无例句，可在「管理」中补充）</div>';
     d.innerHTML='<div style="font-weight:800;color:#b45309">⚠ 已标记错误（累计 '+cnt+' 次）</div>'+
@@ -503,7 +514,7 @@
     d.classList.add('show');
     speak(w.word_en,'en-US');
   }
-  function nextWord(){const s=state.study;s.idx++;renderStudy();}
+  function nextWord(){const s=state.study;s.idx++;s.judged=false;renderStudy();}
   function renderSummary(){
     const s=state.study;
     $('#studyHead').innerHTML='<span>背诵完成</span><span></span>';
