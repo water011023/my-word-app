@@ -169,6 +169,12 @@
             <button data-v="en" class="on">记英文（看英文答中文）</button>
             <button data-v="cn">记中文（看中文答英文）</button>
           </div>
+          <label>语音（单词朗读声线）</label>
+          <div class="seg" id="segVoice">
+            <button data-v="female-us" class="on">美式女声</button>
+            <button data-v="male-us">美式男声</button>
+            <button data-v="default">系统默认</button>
+          </div>
           <div class="row" style="margin-top:18px">
             <button class="btn grow" id="startStudyBtn" style="padding:16px">开始背诵 ▶</button>
           </div>
@@ -305,6 +311,8 @@
   async function deleteLib(id){const db=await openDB();await reqP(db.transaction('libraries','readwrite').objectStore('libraries').delete(id));const ws=db.transaction('words','readwrite').objectStore('words');const keys=await reqP(ws.index('libraryId').getAllKeys(id));await Promise.all(keys.map(k=>reqP(ws.delete(k))));const ps=db.transaction('progress','readwrite').objectStore('progress');const all=await reqP(ps.getAll());await Promise.all(all.filter(p=>p.libraryId===id).map(p=>reqP(ps.delete(p.wordId))));}
 
   /* ============ 全局状态 ============ */
+  // 语音声线偏好：female-us（美式女声，默认）/ male-us（美式男声）/ default（系统默认）
+  let voicePref=(function(){try{return localStorage.getItem('vocab_voice_pref')||'female-us';}catch(e){return 'female-us';}})();
   const state={curLibId:null,study:null,groups:[]};
 
   /* ============ 工具 ============ */
@@ -332,14 +340,22 @@
     loadVoices();
     window.speechSynthesis.onvoiceschanged=loadVoices;
   }
-  function pickVoice(lang){
+  function pickVoice(lang,gender){
     if(!_voices||!_voices.length)return null;
     const target=(lang||'en-US');
-    let v=_voices.find(x=>x.lang&&x.lang.toLowerCase()===target.toLowerCase());
-    if(v)return v;
     const base=target.split('-')[0].toLowerCase();
-    v=_voices.find(x=>x.lang&&x.lang.toLowerCase().startsWith(base));
-    return v||null;
+    let pool=_voices.filter(x=>x.lang&&x.lang.toLowerCase().startsWith(base));
+    if(!pool.length)pool=_voices;
+    // 按声线偏好（女/男）优先匹配名称关键字
+    if(gender==='female'||gender==='male'){
+      const re=gender==='female'
+        ? /female|woman|samantha|zira|victoria|karen|tessa|allison|ava|susan|linda|libby|moira|fiona|kate|emily|joanna|julie|leslie|marlene|mei|ting-ting|\bgoogle us english\b/i
+        : /male|man|alex|david|fred|daniel|tom|george|rishi|\bgoogle uk english male\b|yuri|diego|jorge|juan|paul|ralph|richard|shaun|steven|arthur|mark|oskar/i;
+      const hit=pool.find(x=>re.test(x.name||''));
+      if(hit)return hit;
+    }
+    const v=pool.find(x=>x.lang&&x.lang.toLowerCase()===target.toLowerCase());
+    return v||pool[0]||null;
   }
   // 移动端音频解锁：首次任意手势内唤醒 AudioContext（meSpeak 与 Web Speech 都受益）
   function unlockAudio(){
@@ -355,21 +371,29 @@
   function meSpeakFallback(text,lang){
     if(typeof meSpeak==='undefined'||!msEnReady)return false;
     if(!lang||/^en/i.test(lang)){
-      try{ meSpeak.speak(text,{voice:'en',speed:150,pitch:50,volume:1}); return true; }catch(e){ return false; }
+      try{
+        // 女声变体 f1 + 提高音高；男声 m3 + 降低音高；默认不变体
+        const variant = voicePref==='female-us'?'f1':(voicePref==='male-us'?'m3':'');
+        const opts={voice:'en',speed:150,pitch: voicePref==='female-us'?62:(voicePref==='male-us'?40:50),volume:1};
+        if(variant)opts.variant=variant;
+        meSpeak.speak(text,opts); return true;
+      }catch(e){ return false; }
     }
     return false;
   }
   function speak(text,lang){
     if(!text)return;
     const useLang=lang||'en-US';
-    // 1) 优先 Web Speech（Chrome/Edge 等支持良好的浏览器，音质更自然）
+    const gender = voicePref==='female-us'?'female':(voicePref==='male-us'?'male':null);
+    // 1) 优先 Web Speech（Chrome/Edge/iOS 等支持良好的浏览器，音质更自然）
     if('speechSynthesis'in window){
       try{
         let spoke=false;
         if(window.speechSynthesis.speaking||window.speechSynthesis.pending)window.speechSynthesis.cancel();
         const u=new SpeechSynthesisUtterance(text);
-        u.lang=useLang;u.rate=0.9;u.pitch=1;
-        const v=pickVoice(useLang);if(v)u.voice=v;
+        u.lang=useLang;u.rate=0.9;
+        u.pitch= voicePref==='female-us'?1.15:(voicePref==='male-us'?0.85:1);
+        const v=pickVoice(useLang,gender);if(v)u.voice=v;
         _curUtter=u;
         u.onstart=()=>{spoke=true;};
         u.onerror=()=>{ if(!spoke)meSpeakFallback(text,lang); };
@@ -493,7 +517,7 @@
     $('#chipsAll').onclick=()=>{box.querySelectorAll('.chip').forEach(c=>c.classList.add('on'));updateChipsCount();};
     $('#chipsNone').onclick=()=>{box.querySelectorAll('.chip').forEach(c=>c.classList.remove('on'));updateChipsCount();};
     // 重置选项
-    setSeg('#segMode','all');setSeg('#segSort','order');setSeg('#segMem','en');
+    setSeg('#segMode','all');setSeg('#segSort','order');setSeg('#segMem','en');setSeg('#segVoice',voicePref);
   }
   function setSeg(sel,val){const s=$(sel);s.querySelectorAll('button').forEach(b=>b.classList.toggle('on',b.dataset.v===val));}
   function getSeg(sel){const b=$(sel).querySelector('button.on');return b?b.dataset.v:null;}
@@ -503,7 +527,10 @@
     const on=box.querySelectorAll('.chip.on').length;
     $('#chipsCount').textContent= total? ('已选 '+on+' / '+total+' 组') : '';
   }
-  $all('#segMode button,#segSort button,#segMem button').forEach(b=>b.addEventListener('click',()=>setSeg('#'+b.parentElement.id,b.dataset.v)));
+  $all('#segMode button,#segSort button,#segMem button,#segVoice button').forEach(b=>b.addEventListener('click',()=>{
+    setSeg('#'+b.parentElement.id,b.dataset.v);
+    if(b.parentElement.id==='segVoice'){ voicePref=b.dataset.v; try{localStorage.setItem('vocab_voice_pref',voicePref);}catch(e){} toast('已切换为'+(voicePref==='female-us'?'美式女声':voicePref==='male-us'?'美式男声':'系统默认')); }
+  }));
 
   /* ============ 背诵 ============ */
   async function startStudy(){
