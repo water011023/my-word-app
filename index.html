@@ -158,6 +158,7 @@
           <div class="seg" id="segMode">
             <button data-v="all" class="on">全部背诵</button>
             <button data-v="wrong">仅错词</button>
+            <button data-v="listen">只听错词发音</button>
           </div>
           <label>记忆顺序</label>
           <div class="seg" id="segSort">
@@ -381,9 +382,10 @@
     if(typeof meSpeak==='undefined'||!msEnReady)return false;
     if(!lang||/^en/i.test(lang)){
       try{
-        // 女声变体 f1 + 提高音高；男声 m3 + 降低音高；默认不变体
-        const variant = voicePref==='female'?'f1':(voicePref==='male'?'m3':'');
-        const opts={voice:'en',speed:150,pitch: voicePref==='female'?62:(voicePref==='male'?40:50),volume:1};
+        // 女声变体 f1 + 提高音高；男声 m3 + 降低音高；系统默认也固定为女声
+        const isFemale=(voicePref==='female'||voicePref==='default');
+        const variant = isFemale?'f1':(voicePref==='male'?'m3':'');
+        const opts={voice:'en',speed:150,pitch: isFemale?62:(voicePref==='male'?40:50),volume:1};
         if(variant)opts.variant=variant;
         meSpeak.speak(text,opts); return true;
       }catch(e){ return false; }
@@ -393,7 +395,7 @@
   function speak(text,lang){
     if(!text)return;
     const useLang=lang||'en-US';
-    const gender = voicePref==='female'?'female':(voicePref==='male'?'male':null);
+    const gender = (voicePref==='female'||voicePref==='default')?'female':(voicePref==='male'?'male':null);
     // 1) 优先 Web Speech（Chrome/Edge/iOS 等支持良好的浏览器，音质更自然）
     if('speechSynthesis'in window){
       try{
@@ -401,7 +403,7 @@
         if(window.speechSynthesis.speaking||window.speechSynthesis.pending)window.speechSynthesis.cancel();
         const u=new SpeechSynthesisUtterance(text);
         u.lang=useLang;u.rate=0.9;
-        u.pitch= voicePref==='female'?1.15:(voicePref==='male'?0.85:1);
+        u.pitch= (voicePref==='female'||voicePref==='default')?1.15:(voicePref==='male'?0.85:1);
         const v=pickVoice(useLang,gender);if(v)u.voice=v;
         _curUtter=u;
         u.onstart=()=>{spoke=true;};
@@ -573,7 +575,7 @@
   $all('#segMode button,#segSort button,#segMem button,#segVoice button,#segAccent button').forEach(b=>b.addEventListener('click',()=>{
     setSeg('#'+b.parentElement.id,b.dataset.v);
     const id=b.parentElement.id;
-    if(id==='segVoice'){ voicePref=b.dataset.v; try{localStorage.setItem('vocab_voice_pref',voicePref);}catch(e){} toast('声线：'+(voicePref==='female'?'女声':voicePref==='male'?'男声':'系统默认')+'（仅无真人音时生效）'); }
+    if(id==='segVoice'){ voicePref=b.dataset.v; try{localStorage.setItem('vocab_voice_pref',voicePref);}catch(e){} toast('声线：'+((voicePref==='male')?'男声':'女声')+'（仅无真人音时生效）'); }
     if(id==='segAccent'){ accentPref=b.dataset.v; try{localStorage.setItem('vocab_accent',accentPref);}catch(e){} toast('发音口音：'+(accentPref==='us'?'美式':'英式')); }
   }));
 
@@ -585,12 +587,17 @@
     const sel=state.groups.filter(g=>{const c=document.querySelector('#groupChips .chip[data-g="'+CSS.escape(g)+'"]');return c&&c.classList.contains('on');});
     if(sel.length)words=words.filter(w=>sel.includes(w.group_tag));
     let mode=getSeg('#segMode'),sort=getSeg('#segSort'),mem=getSeg('#segMem');
-    if(mode==='wrong'){
+    if(mode==='wrong'||mode==='listen'){
       const prog=await getProgressForLib(state.curLibId);
       const wrong=new Set(prog.filter(p=>p.error_count>0).map(p=>p.wordId));
       const filtered=words.filter(w=>wrong.has(w.id));
-      if(filtered.length===0){toast('本范围暂无错词，自动切换为全部背诵');mode='all';setSeg('#segMode','all');words=words;}
-      else words=filtered;
+      if(mode==='listen'){
+        if(filtered.length===0){toast('本范围暂无错词，先去背一遍吧');return;}
+        words=filtered;
+      }else{
+        if(filtered.length===0){toast('本范围暂无错词，自动切换为全部背诵');mode='all';setSeg('#segMode','all');words=words;}
+        else words=filtered;
+      }
     }
     if(sort==='random'){for(let i=words.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[words[i],words[j]]=[words[j],words[i]];}}
     else words.sort((a,b)=>(a.word_order||0)-(b.word_order||0));
@@ -601,6 +608,7 @@
 
   function renderStudy(){
     const s=state.study;if(!s)return;
+    if(s.mode==='listen'){ renderListen(); return; }
     s.judged=false;
     if(s.idx>=s.words.length){renderSummary();return;}
     const w=s.words[s.idx];s.cur=w;
@@ -625,6 +633,24 @@
     $('#wrongBtn').addEventListener('click',()=>judge(w,false));
     $('#nextBtn').addEventListener('click',()=>judge(w,true));
     if(_audioUnlocked)playWordAudio(spoken); // 仅在已解锁(用户曾交互)时才自动播，避免移动端被拦截
+  }
+  // 只听错词发音模式：纯听力强化，不判对错，按真人音逐词播放
+  function renderListen(){
+    const s=state.study;if(!s)return;
+    if(s.idx>=s.words.length){renderSummary();return;}
+    const w=s.words[s.idx];s.cur=w;
+    const total=s.words.length;
+    $('#studyHead').innerHTML='<span>'+esc(s.lib.name)+' · 只听错词发音</span><span>'+(s.idx+1)+' / '+total+'</span>';
+    $('#studyBar').style.width=((s.idx)/total*100)+'%';
+    const body=$('#studyBody');
+    body.innerHTML=
+      '<div class="study-word">'+esc(w.word_en)+'</div>'+
+      '<div class="study-sub">'+esc(w.word_cn)+'</div>'+
+      '<div class="study-actions"><button class="btn ghost" id="speakBtn">🔊 重播</button></div>'+
+      '<div class="study-actions"><button class="btn ok" id="nextBtn" style="flex:1">下一个 ▶</button></div>';
+    $('#speakBtn').addEventListener('click',()=>playWordAudio(w.word_en));
+    $('#nextBtn').addEventListener('click',()=>{s.idx++;renderListen();});
+    if(_audioUnlocked)playWordAudio(w.word_en);
   }
   // 每个词只判一次：锁定按钮，避免“标记错误”后又被“下一个”重复计数
   function judge(w,isCorrect){
