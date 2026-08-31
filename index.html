@@ -354,21 +354,31 @@
     loadVoices();
     window.speechSynthesis.onvoiceschanged=loadVoices;
   }
+  // 判断语音所属语种家族：中文含 zh/cmn(普通话)/yue(粤语)/wuu 等。
+  // 关键：安卓常把中文音库标成 cmn-CN / cmn-Hans-CN，旧逻辑用 startsWith('zh') 会漏选，
+  // 于是退而用英文音库读中文 → 乱码。这里必须把 cmn/yue 也当作中文。
+  function langBase(lang){
+    const l=(lang||'').toLowerCase();
+    if(/^(zh|cmn|yue|zho|han|wuu|nan|hak)/.test(l) || /chinese/i.test(l) || /-(cn|tw|hk|sg|mo)$/.test(l)) return 'zh';
+    if(l.startsWith('en')) return 'en';
+    return l.split('-')[0];
+  }
+  // 系统是否具备某语种的语音。不具备时交给 meSpeak 离线合成，绝不让英文音库读中文。
+  function hasVoiceFor(lang){ const b=langBase(lang); return !!(_voices&&_voices.some(x=>langBase(x.lang)===b)); }
   function pickVoice(lang,gender){
     if(!_voices||!_voices.length)return null;
-    const target=(lang||'en-US');
-    const base=target.split('-')[0].toLowerCase();
-    let pool=_voices.filter(x=>x.lang&&x.lang.toLowerCase().startsWith(base));
+    const want=langBase(lang);
+    let pool=_voices.filter(x=>langBase(x.lang)===want);
     if(!pool.length)pool=_voices;
-    // 按声线偏好（女/男）优先匹配名称关键字
+    // 按声线偏好（女/男）优先匹配名称关键字（含常见中文女声：晓晓/晓依/Yue/Huihui/Yaoyao 等）
     if(gender==='female'||gender==='male'){
       const re=gender==='female'
-        ? /female|woman|samantha|zira|victoria|karen|tessa|allison|ava|susan|linda|libby|moira|fiona|kate|emily|joanna|julie|leslie|marlene|mei|ting-ting|\bgoogle us english\b/i
-        : /male|man|alex|david|fred|daniel|tom|george|rishi|\bgoogle uk english male\b|yuri|diego|jorge|juan|paul|ralph|richard|shaun|steven|arthur|mark|oskar/i;
+        ? /female|woman|samantha|zira|victoria|karen|tessa|allison|ava|susan|linda|libby|moira|fiona|kate|emily|joanna|julie|leslie|marlene|mei|ting-ting|xiaoxiao|xiaoyi|yue|yaoyao|yaru|huihui|luli|tracy|jing|\bgoogle us english\b/i
+        : /male|man|alex|david|fred|daniel|tom|george|rishi|\bgoogle uk english male\b|yuri|diego|jorge|juan|paul|ralph|richard|shaun|steven|arthur|mark|oskar|yunxi|kangkang|\bgoogle uk english\b/i;
       const hit=pool.find(x=>re.test(x.name||''));
       if(hit)return hit;
     }
-    const v=pool.find(x=>x.lang&&x.lang.toLowerCase()===target.toLowerCase());
+    const v=pool.find(x=>x.lang&&x.lang.toLowerCase()===lang.toLowerCase());
     return v||pool[0]||null;
   }
   // 移动端音频解锁：首次任意手势内唤醒 AudioContext（meSpeak 与 Web Speech 都受益）
@@ -406,26 +416,31 @@
   function speak(text,lang){
     if(!text)return;
     const useLang=lang||'en-US';
+    const isZh=/^zh/i.test(useLang);
     const gender = (voicePref==='female'||voicePref==='default')?'female':(voicePref==='male'?'male':null);
     // 1) 优先 Web Speech（Chrome/Edge/iOS 等支持良好的浏览器，音质更自然）
-    if('speechSynthesis'in window){
+    //    关键：若该语种系统根本无对应语音（如手机未装中文 TTS / 中文音库被标成 cmn-CN），
+    //    直接走 meSpeak 离线合成，绝不让英文音库去读中文（会读成乱码）。
+    if('speechSynthesis'in window && hasVoiceFor(useLang)){
       try{
         let spoke=false;
         if(window.speechSynthesis.speaking||window.speechSynthesis.pending)window.speechSynthesis.cancel();
         const u=new SpeechSynthesisUtterance(text);
-        u.lang=useLang;u.rate=0.9;
+        u.lang=useLang;u.rate= isZh?0.85:0.9;
         u.pitch= (voicePref==='female'||voicePref==='default')?1.15:(voicePref==='male'?0.85:1);
         const v=pickVoice(useLang,gender);if(v)u.voice=v;
         _curUtter=u;
         u.onstart=()=>{spoke=true;};
+        u.onend=()=>{spoke=true;};
         u.onerror=()=>{ if(!spoke)meSpeakFallback(text,lang); };
         window.speechSynthesis.speak(u);
         // 部分浏览器 speechSynthesis 存在但永不触发 onstart（如 X5/华为内核）→ 超时降级到 meSpeak
-        setTimeout(()=>{ if(!spoke)meSpeakFallback(text,lang); },700);
+        // 中文首播常更慢，给更长窗口；降级前先 cancel 正在排队的系统语音，避免中英重叠
+        setTimeout(()=>{ if(!spoke){ try{window.speechSynthesis.cancel();}catch(e){} meSpeakFallback(text,lang);} }, isZh?1100:700);
         return;
       }catch(e){ /* 落到下面 meSpeak */ }
     }
-    // 2) 无 Web Speech 直接走 meSpeak
+    // 2) 无对应系统语音 / 无 Web Speech → 直接走 meSpeak 离线合成
     meSpeakFallback(text,lang);
   }
 
@@ -687,14 +702,17 @@
     $('#studyHead').innerHTML='<span>'+esc(s.lib.name)+' · 只听错词发音</span><span>'+(s.idx+1)+' / '+total+'</span>';
     $('#studyBar').style.width=((s.idx)/total*100)+'%';
     const body=$('#studyBody');
+    // 只听错词发音也遵循记忆模式：父母·显英文播中文 → 听中文；其余（en/cn/parent-cn）→ 听英文真人音
+    let listenSpoken=w.word_en, listenLang='en-US', listenHint='🔊 听英文发音';
+    if(s.mem==='parent-en'){ listenSpoken=w.word_cn; listenLang='zh-CN'; listenHint='👂 听中文（父母辅助）'; }
     body.innerHTML=
       '<div class="study-word">'+esc(w.word_en)+'</div>'+
-      '<div class="study-sub">'+esc(w.word_cn)+'</div>'+
+      '<div class="study-sub">'+esc(w.word_cn)+' &nbsp;<span style="opacity:.7">'+listenHint+'</span></div>'+
       '<div class="study-actions"><button class="btn ghost" id="speakBtn">🔊 重播</button></div>'+
       '<div class="study-actions"><button class="btn ok" id="nextBtn" style="flex:1">下一个 ▶</button></div>';
-    $('#speakBtn').addEventListener('click',()=>playWordAudio(w.word_en));
+    $('#speakBtn').addEventListener('click',()=>playWordAudio(listenSpoken,listenLang));
     $('#nextBtn').addEventListener('click',()=>{s.idx++;renderListen();});
-    if(_audioUnlocked)playWordAudio(w.word_en);
+    if(_audioUnlocked)playWordAudio(listenSpoken,listenLang);
   }
   // 每个词只判一次：锁定按钮，避免“标记错误”后又被“下一个”重复计数
   function judge(w,isCorrect){
