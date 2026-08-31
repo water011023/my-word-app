@@ -170,6 +170,8 @@
           <div class="seg" id="segMem">
             <button data-v="en" class="on">记英文（看英文答中文）</button>
             <button data-v="cn">记中文（看中文答英文）</button>
+            <button data-v="parent-cn">父母·显中文播英文</button>
+            <button data-v="parent-en">父母·显英文播中文</button>
           </div>
           <label>发音口音（真人发音）</label>
           <div class="seg" id="segAccent">
@@ -334,13 +336,14 @@
   function uid(p){return (crypto.randomUUID?crypto.randomUUID():(p+'_'+Date.now()+'_'+Math.random().toString(36).slice(2)));}
 
   /* ============ 语音播报（移动端健壮版 + meSpeak 兜底） ============ */
-  let _voices=[], _audioUnlocked=false, _curUtter=null, msEnReady=false;
+  let _voices=[], _audioUnlocked=false, _curUtter=null, msEnReady=false, msZhReady=false;
   // —— meSpeak：纯 JS 离线 TTS，不依赖浏览器自带语音，荣耀/百度等浏览器也可用 ——
   function initMeSpeak(){
     if(typeof meSpeak==='undefined')return;
     try{
       meSpeak.loadConfig('mespeak/mespeak_config.json');
       meSpeak.loadVoice('mespeak/voices/en/en.json', function(){ msEnReady=true; });
+      meSpeak.loadVoice('mespeak/voices/zh.json', function(){ msZhReady=true; }); // 中文离线兜底
     }catch(e){}
   }
   initMeSpeak();
@@ -380,11 +383,18 @@
   });
   // meSpeak 兜底（英文单词，所有浏览器通用）
   function meSpeakFallback(text,lang){
-    if(typeof meSpeak==='undefined'||!msEnReady)return false;
+    if(typeof meSpeak==='undefined')return false;
+    const isFemale=(voicePref==='female'||voicePref==='default');
+    if(/^zh/i.test(lang||'')){ // 中文：用中文音库离线合成
+      if(!msZhReady)return false;
+      try{
+        meSpeak.speak(text,{voice:'zh',speed:140,pitch: isFemale?58:42,volume:1}); return true;
+      }catch(e){ return false; }
+    }
+    if(!msEnReady)return false;
     if(!lang||/^en/i.test(lang)){
       try{
         // 女声变体 f1 + 提高音高；男声 m3 + 降低音高；系统默认也固定为女声
-        const isFemale=(voicePref==='female'||voicePref==='default');
         const variant = isFemale?'f1':(voicePref==='male'?'m3':'');
         const opts={voice:'en',speed:150,pitch: isFemale?62:(voicePref==='male'?40:50),volume:1};
         if(variant)opts.variant=variant;
@@ -427,8 +437,12 @@
     try{ const r=await fetch('audio/manifest.json',{cache:'force-cache'}); if(r&&r.ok){ audioManifest=await r.json(); } }catch(e){ audioManifest=null; }
   }
   // 播放单词：优先真人音（按当前口音），失败/缺失则退回合成音
-  function playWordAudio(word){
+  function playWordAudio(word, lang){
     if(!word)return;
+    const useLang=lang||'en-US';
+    if(/^zh/i.test(useLang)){ // 中文无真人音，直接合成中文发音
+      speak(word,'zh-CN'); return;
+    }
     const accent=accentPref||'us';
     const key=audioKey(word);
     let useAccent=null;
@@ -636,9 +650,20 @@
     $('#studyBar').style.width=((s.idx)/total*100)+'%';
     const body=$('#studyBody');
     let showText,subText,spoken,spokenLang;
-    spoken=w.word_en; spokenLang='en-US'; // 核心：始终朗读英文单词本身，meSpeak 兜底保证所有浏览器出声
-    if(s.mem==='en'){showText=w.word_en;subText='🔊 听单词发音，口头拼出英文并说出中文';}
-    else{showText=w.word_cn;subText='🔊 听单词发音，口头拼出英文';}
+    // 四种记忆模式：显示方向与播报方向解耦
+    if(s.mem==='parent-en'){            // 父母·显英文播中文
+      showText=w.word_en; spoken=w.word_cn; spokenLang='zh-CN';
+      subText='👨 看英文，听中文发音';
+    } else if(s.mem==='parent-cn'){     // 父母·显中文播英文
+      showText=w.word_cn; spoken=w.word_en; spokenLang='en-US';
+      subText='👨 看中文，听英文发音';
+    } else if(s.mem==='en'){            // 记英文：看英文答中文
+      showText=w.word_en; spoken=w.word_en; spokenLang='en-US';
+      subText='🔊 听单词发音，口头拼出英文并说出中文';
+    } else {                            // cn：记中文：看中文答英文
+      showText=w.word_cn; spoken=w.word_en; spokenLang='en-US';
+      subText='🔊 听单词发音，口头拼出英文';
+    }
     body.innerHTML=
       '<div class="study-word">'+esc(showText)+'</div>'+
       '<div class="study-sub">'+esc(subText)+'</div>'+
@@ -648,10 +673,10 @@
         '<button class="btn ok" id="nextBtn">✓ 认识</button>'+
       '</div>'+
       '<div class="detail" id="detail"></div>';
-    $('#speakBtn').addEventListener('click',()=>playWordAudio(spoken));
+    $('#speakBtn').addEventListener('click',()=>playWordAudio(spoken,spokenLang));
     $('#wrongBtn').addEventListener('click',()=>judge(w,false));
     $('#nextBtn').addEventListener('click',()=>judge(w,true));
-    if(_audioUnlocked)playWordAudio(spoken); // 仅在已解锁(用户曾交互)时才自动播，避免移动端被拦截
+    if(_audioUnlocked)playWordAudio(spoken,spokenLang); // 仅在已解锁(用户曾交互)时才自动播，避免移动端被拦截
   }
   // 只听错词发音模式：纯听力强化，不判对错，按真人音逐词播放
   function renderListen(){
