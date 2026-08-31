@@ -1,5 +1,5 @@
 /* service worker — 离线缓存应用外壳 */
-const CACHE = 'vocab-pwa-v4';
+const CACHE = 'vocab-pwa-v5';
 const SHELL = [
   './',
   './index.html',
@@ -7,7 +7,8 @@ const SHELL = [
   './manifest.json',
   './icon.svg',
   './libs/xlsx.full.min.js',
-  './zhongkao1600.xlsx'
+  './zhongkao1600.xlsx',
+  './mespeak/voices/zh.json'
 ];
 
 self.addEventListener('install', function (e) {
