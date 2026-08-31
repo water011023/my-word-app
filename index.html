@@ -135,7 +135,8 @@
           <h2>我的词库</h2>
           <div class="row" style="margin-bottom:14px">
             <button class="btn" id="goImportBtn">＋ 导入新词库</button>
-            <button class="btn ghost" id="loadSampleBtn">载入示例词库</button>
+            <button class="btn primary" id="loadBuiltinBtn">载入中考1600词库</button>
+            <button class="btn ghost" id="loadSampleBtn">载入示例词库(8词)</button>
           </div>
           <div id="libGrid" class="lib-grid"></div>
           <div id="libEmpty" class="empty">还没有词库，点「导入新词库」或「载入示例词库」开始。</div>
@@ -539,6 +540,24 @@
     const rows=VocabCore.parseDelimitedText(sample);
     const id=await importRows(rows,'示例词库(8词)','内置示例');
     if(id)renderLibs();
+  });
+  // 一键载入内置中考1600词库（手机端无需手动传文件，与电脑端一致）
+  $('#loadBuiltinBtn').addEventListener('click',async()=>{
+    const btn=$('#loadBuiltinBtn');
+    if(btn.disabled)return;
+    const oldText=btn.textContent;
+    btn.disabled=true; btn.textContent='加载中…';
+    try{
+      const libs=await getLibs();
+      if(libs.some(l=>l.source==='内置-中考1600')){ toast('中考1600词库已载入'); btn.disabled=false; btn.textContent=oldText; return; }
+      const r=await fetch('zhongkao1600.xlsx',{cache:'force-cache'});
+      if(!r.ok) throw new Error('下载失败('+r.status+')，请联网后重试');
+      const ab=await r.arrayBuffer();
+      const rows=xlsxToRows(ab);
+      const id=await importRows(rows,'中考1600词库','内置-中考1600');
+      if(id){ renderLibs(); toast('已载入中考1600词库'); }
+    }catch(e){ console.error(e); toast('载入失败：'+(e&&e.message||e)); }
+    finally{ btn.disabled=false; btn.textContent=oldText; }
   });
 
   /* ============ 背诵设置 ============ */
