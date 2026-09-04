@@ -55,7 +55,8 @@
   .lib-card .name{font-weight:800;font-size:16px;margin-bottom:6px}
   .lib-card .meta{font-size:12px;color:var(--muted)}
   .lib-card .del{position:absolute;top:8px;right:8px;border:none;background:#fee2e2;color:var(--bad);border-radius:8px;width:26px;height:26px;cursor:pointer;font-weight:700}
-  .chip{display:inline-flex;align-items:center;gap:6px;padding:8px 12px;border-radius:999px;border:1px solid var(--line);background:#fff;cursor:pointer;font-size:13px;user-select:none}
+  /* max-width/换行：分组名可能是完整单元标题（如 "Unit 1 Amazing Places 奇妙地标"），窄屏不能溢出 */
+  .chip{display:inline-flex;align-items:center;gap:6px;padding:8px 12px;border-radius:999px;border:1px solid var(--line);background:#fff;cursor:pointer;font-size:13px;user-select:none;max-width:100%;white-space:normal;word-break:break-word;text-align:left;line-height:1.35}
   .chip.on{background:var(--primary);color:#fff;border-color:var(--primary)}
   .seg{display:flex;border:1px solid var(--line);border-radius:12px;overflow:hidden;background:#fff}
   .seg button{flex:1;border:none;background:#fff;padding:11px;font-size:14px;font-weight:700;cursor:pointer;color:var(--muted)}
@@ -520,16 +521,20 @@
   }
 
   /* ============ 导入 ============ */
-  async function importRows(rows,libraryName,source){
+  function fmtLabel(f){ return f==='zhongkao'?'中考1600格式':(f==='unit-section'?'按单元分组':'通用格式'); }
+  // 返回 {id, records, groups, format}；调用方只判真假，兼容原有写法
+  async function importRows(rows,libraryName,source,opts){
+    opts=opts||{};
     const name=libraryName&&libraryName.trim()?libraryName.trim():('词库'+new Date().toLocaleDateString());
     const {records,skipped,format}=VocabCore.normalizeRows(rows,{libraryName:name});
-    if(records.length===0){toast('未解析到有效单词，请检查格式');return null;}
+    if(records.length===0){ if(!opts.silent)toast('未解析到有效单词，请检查格式'); return null; }
     const libId=uid('lib');
     await putLib({id:libId,name,createdAt:Date.now(),source:source||'',format});
     await addWords(libId,records);
     state.curLibId=libId;updateIndicator();
-    toast('已导入 '+records.length+' 词'+(skipped?('，跳过 '+skipped+' 空行'):'')+'（'+(format==='zhongkao'?'中考1600格式':'通用格式')+'）');
-    return libId;
+    const groups=new Set(records.map(function(r){return r.group_tag;})).size;
+    if(!opts.silent)toast('已导入 '+records.length+' 词'+(skipped?('，跳过 '+skipped+' 空行'):'')+'（'+fmtLabel(format)+(groups>1?(' · '+groups+'个分组'):'')+'）');
+    return {id:libId,records:records.length,groups:groups,format:format};
   }
   function xlsxToRows(ab){
     const wb=XLSX.read(ab,{type:'array'});
@@ -537,16 +542,48 @@
     if(!ws)return [];
     return XLSX.utils.sheet_to_json(ws,{header:1,defval:'',blankrows:false});
   }
+  // 多 sheet 工作簿（如「六年级上册」「六年级下册」各占一个 sheet）：逐 sheet 取行，
+  // 便于按册分别建库——旧逻辑只读 SheetNames[0]，下册会被整个丢掉。
+  function xlsxToSheets(ab){
+    const wb=XLSX.read(ab,{type:'array'});
+    return wb.SheetNames.map(function(n){
+      return {name:n, rows:XLSX.utils.sheet_to_json(wb.Sheets[n],{header:1,defval:'',blankrows:false})};
+    }).filter(function(s){ return s.rows && s.rows.length; });
+  }
   $('#impFileBtn').addEventListener('click',async()=>{
     const f=$('#impFile').files[0];
     if(!f){toast('请先选择文件');return;}
+    const btn=$('#impFileBtn');const oldText=btn.textContent;btn.disabled=true;btn.textContent='导入中…';
     try{
-      let rows;
-      if(/\.(xlsx|xls)$/i.test(f.name)){rows=xlsxToRows(await f.arrayBuffer());}
-      else{rows=VocabCore.parseDelimitedText(await f.text());}
-      const id=await importRows(rows,$('#impName').value||f.name.replace(/\.[^.]+$/,''),f.name);
+      const baseName=$('#impName').value||f.name.replace(/\.[^.]+$/,'');
+      if(/\.(xlsx|xls)$/i.test(f.name)){
+        const sheets=xlsxToSheets(await f.arrayBuffer());
+        if(sheets.length>1){
+          // 多 sheet：每个 sheet 建一个独立词库（上册/下册分开），组内单元分组各自保留
+          const done=[];
+          for(const s of sheets){
+            const sname=(s.name||'').trim();
+            // sheet 名有意义（如「六年级上册」）就直接用；通用的 Sheet1/工作表1 则加上文件前缀
+            const libName=/^(sheet|工作表|worksheet)\s*\d*$/i.test(sname)?(baseName+' · '+sname):(sname||baseName);
+            const r=await importRows(s.rows,libName,f.name+'#'+sname,{silent:true});
+            if(r)done.push({name:libName,records:r.records,groups:r.groups});
+          }
+          renderLibs();
+          if(done.length){
+            toast('已分成 '+done.length+' 个词库：'+done.map(function(d){return d.name+'('+d.records+'词/'+d.groups+'组)';}).join('、'));
+          }else toast('未解析到有效单词，请检查格式');
+          return;
+        }
+        const rows=sheets.length?sheets[0].rows:[];
+        const id=await importRows(rows,baseName,f.name);
+        if(id){renderLibs();}
+        return;
+      }
+      const rows=VocabCore.parseDelimitedText(await f.text());
+      const id=await importRows(rows,baseName,f.name);
       if(id){renderLibs();}
     }catch(e){console.error(e);toast('导入失败：'+e.message);}
+    finally{btn.disabled=false;btn.textContent=oldText;}
   });
   $('#impPasteBtn').addEventListener('click',async()=>{
     const t=$('#impText').value;
