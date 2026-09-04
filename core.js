@@ -93,6 +93,7 @@
     cn: ['中文释义', '词义', '释义', '中文', 'meaning', 'translation', 'chinese'],
     group: ['分组标记', '分组', 'group', 'unit', '单元', '组别'],
     order: ['序号', '排序', 'order', 'no', '编号', 'index'],
+    phonetic: ['音标', 'phonetic', 'ipa', '读音', '国际音标'],
     exampleEn: ['例句英文', '英文例句', 'example_en', 'example', '例句'],
     exampleCn: ['例句中文', '中文例句', 'example_cn']
   };
@@ -149,6 +150,7 @@
           if (c === enC || c === cnC) continue;
           if (matchHeader(r[c], HEADER_KEYS.group)) colMap.group = c;
           else if (matchHeader(r[c], HEADER_KEYS.order)) colMap.order = c;
+          else if (matchHeader(r[c], HEADER_KEYS.phonetic)) colMap.phonetic = c;
           else if (matchHeader(r[c], HEADER_KEYS.exampleEn)) colMap.exampleEn = c;
           else if (matchHeader(r[c], HEADER_KEYS.exampleCn)) colMap.exampleCn = c;
         }
@@ -239,10 +241,13 @@
 
       const example_en = colMap.exampleEn != null ? cellStr(r[colMap.exampleEn]) : '';
       const example_cn = colMap.exampleCn != null ? cellStr(r[colMap.exampleCn]) : '';
+      // 音标（教材表常见列；老词库没有该字段时为空，界面自动不显示）
+      const phonetic = colMap.phonetic != null ? cellStr(r[colMap.phonetic]) : '';
 
       records.push({
         word_en: en,
         word_cn: cn,
+        phonetic: phonetic,
         group_tag: g.group_tag,
         word_order: word_order,
         unit_no: g.unit_no,
@@ -260,7 +265,7 @@
   }
   // rows: [{word_en,word_cn,group_tag,word_order,unit_no,error_count,example_en,example_cn}]
   function buildCsv(rows) {
-    const header = ['word_en', 'word_cn', 'group_tag', 'word_order', 'unit_no', 'error_count', 'example_en', 'example_cn'];
+    const header = ['word_en', 'word_cn', 'phonetic', 'group_tag', 'word_order', 'unit_no', 'error_count', 'example_en', 'example_cn'];
     const lines = [header.join(',')];
     for (let i = 0; i < rows.length; i++) {
       const r = rows[i];
