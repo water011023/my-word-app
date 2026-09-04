@@ -1,5 +1,5 @@
 /* service worker — 离线缓存应用外壳 */
-const CACHE = 'vocab-pwa-v7';
+const CACHE = 'vocab-pwa-v8';
 const SHELL = [
   './',
   './index.html',
