@@ -61,9 +61,15 @@
   .seg{display:flex;border:1px solid var(--line);border-radius:12px;overflow:hidden;background:#fff}
   .seg button{flex:1;border:none;background:#fff;padding:11px;font-size:14px;font-weight:700;cursor:pointer;color:var(--muted)}
   .seg button.on{background:var(--primary);color:#fff}
+  /* 记忆模式有 4 个且文案较长 → 2×2 排布，避免挤成一条 */
+  #segMem{flex-wrap:wrap}
+  #segMem button{flex:1 1 46%;min-width:46%;border-top:1px solid var(--line)}
   /* 背诵页 */
   .study-word{font-size:46px;font-weight:800;text-align:center;margin:24px 0 8px;word-break:break-word;line-height:1.2}
   .study-sub{text-align:center;color:var(--muted);font-size:16px;margin-bottom:18px}
+  /* 播中文/播英文模式：英文大字之下的中文释义与音标 */
+  .study-cn{font-size:26px;font-weight:700;text-align:center;margin:0 0 6px;word-break:break-word;line-height:1.35}
+  .study-ipa{font-size:18px;text-align:center;color:var(--muted);margin:0 0 14px;letter-spacing:.5px;word-break:break-word}
   .progress{height:10px;background:#e2e8f0;border-radius:999px;overflow:hidden;margin:14px 0}
   .progress > i{display:block;height:100%;background:linear-gradient(90deg,#4f46e5,#0ea5e9);width:0;transition:.25s}
   .study-actions{display:flex;gap:12px;margin-top:18px}
@@ -100,6 +106,8 @@
     .bottombar .nav-btn.active{color:var(--primary)}
     main{padding:14px 14px 84px}
     .study-word{font-size:38px}
+    .study-cn{font-size:22px}
+    .study-ipa{font-size:16px}
   }
   @media print{
     .topbar,.sidebar,.bottombar,main,.toast{display:none !important}
@@ -171,8 +179,8 @@
           <div class="seg" id="segMem">
             <button data-v="en" class="on">记英文（看英文答中文）</button>
             <button data-v="cn">记中文（看中文答英文）</button>
-            <button data-v="parent-cn">父母·显中文播英文</button>
-            <button data-v="parent-en">父母·显英文播中文</button>
+            <button data-v="speak-cn">播中文（英·中·音标全显示）</button>
+            <button data-v="speak-en">播英文（英·中·音标全显示）</button>
           </div>
           <label>发音口音（真人发音）</label>
           <div class="seg" id="segAccent">
@@ -691,6 +699,12 @@
   }
   $('#startStudyBtn').addEventListener('click',startStudy);
 
+  // 播中文/播英文模式：大字英文之下依次是中文释义、音标（音标为空则整行省略）
+  function studyExtraLines(w){
+    let h='<div class="study-cn">'+esc(w.word_cn||'')+'</div>';
+    if(w.phonetic)h+='<div class="study-ipa">'+esc(w.phonetic)+'</div>';
+    return h;
+  }
   function renderStudy(){
     const s=state.study;if(!s)return;
     if(s.mode==='listen'){ renderListen(); return; }
@@ -701,14 +715,16 @@
     $('#studyHead').innerHTML='<span>'+esc(s.lib.name)+' · '+(s.mode==='wrong'?'仅错词':'全部')+'</span><span>'+(s.idx+1)+' / '+total+'</span>';
     $('#studyBar').style.width=((s.idx)/total*100)+'%';
     const body=$('#studyBody');
-    let showText,subText,spoken,spokenLang;
-    // 四种记忆模式：显示方向与播报方向解耦
-    if(s.mem==='parent-en'){            // 父母·显英文播中文
+    let showText,subText,spoken,spokenLang,extraLines='';
+    // 四种记忆模式：显示内容与播报方向解耦
+    if(s.mem==='speak-cn'){              // 播中文：英文/中文/音标全显示，播中文
       showText=w.word_en; spoken=w.word_cn; spokenLang='zh-CN';
-      subText='👨 看英文，听中文发音';
-    } else if(s.mem==='parent-cn'){     // 父母·显中文播英文
-      showText=w.word_cn; spoken=w.word_en; spokenLang='en-US';
-      subText='👨 看中文，听英文发音';
+      extraLines=studyExtraLines(w);
+      subText='🔊 听中文发音';
+    } else if(s.mem==='speak-en'){       // 播英文：英文/中文/音标全显示，播英文真人音
+      showText=w.word_en; spoken=w.word_en; spokenLang='en-US';
+      extraLines=studyExtraLines(w);
+      subText='🔊 听英文发音';
     } else if(s.mem==='en'){            // 记英文：看英文答中文
       showText=w.word_en; spoken=w.word_en; spokenLang='en-US';
       subText='🔊 听单词发音，口头拼出英文并说出中文';
@@ -718,6 +734,7 @@
     }
     body.innerHTML=
       '<div class="study-word">'+esc(showText)+'</div>'+
+      extraLines+
       '<div class="study-sub">'+esc(subText)+'</div>'+
       '<div class="study-actions"><button class="btn ghost" id="speakBtn">🔊 播报</button></div>'+
       '<div class="study-actions">'+
@@ -739,9 +756,9 @@
     $('#studyHead').innerHTML='<span>'+esc(s.lib.name)+' · 只听错词发音</span><span>'+(s.idx+1)+' / '+total+'</span>';
     $('#studyBar').style.width=((s.idx)/total*100)+'%';
     const body=$('#studyBody');
-    // 只听错词发音也遵循记忆模式：父母·显英文播中文 → 听中文；其余（en/cn/parent-cn）→ 听英文真人音
+    // 只听错词发音也遵循记忆模式：「播中文」→ 听中文；其余（en/cn/播英文）→ 听英文真人音
     let listenSpoken=w.word_en, listenLang='en-US', listenHint='🔊 听英文发音';
-    if(s.mem==='parent-en'){ listenSpoken=w.word_cn; listenLang='zh-CN'; listenHint='👂 听中文（父母辅助）'; }
+    if(s.mem==='speak-cn'){ listenSpoken=w.word_cn; listenLang='zh-CN'; listenHint='👂 听中文发音'; }
     body.innerHTML=
       '<div class="study-word">'+esc(w.word_en)+'</div>'+
       '<div class="study-sub">'+esc(w.word_cn)+' &nbsp;<span style="opacity:.7">'+listenHint+'</span></div>'+
